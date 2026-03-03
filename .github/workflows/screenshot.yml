@@ -19,7 +19,7 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 18.x
-          cache: "npm"
+          cache: 'npm'
 
       - name: Install dependencies
         run: |
@@ -34,31 +34,88 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             chromium-browser \
-            chromium-chromedriver \
             xvfb \
             libnss3 \
             libatk-bridge2.0-0 \
-            libdrm2 \
-            libxkbcommon0 \
             libgbm1 \
-            libasound2 \
-            libxshmfence1 \
-            fonts-liberation \
-            libappindicator3-1
+            libxshmfence1
 
       - name: Create screenshots directory
         run: mkdir -p screenshots
 
+      - name: Debug - List files
+        run: |
+          echo "📁 Current directory:"
+          pwd
+          echo "📁 Contents:"
+          ls -la
+          echo "📁 Scripts folder:"
+          ls -la scripts/ || echo "Scripts folder not found"
+          echo "📁 Build folder:"
+          ls -la build/ || echo "Build folder not found"
+
+      - name: Debug - Test script syntax
+        run: |
+          node --check scripts/take-screenshot.js || echo "❌ Script has syntax errors"
+          echo "✅ Script syntax check passed"
+
+      - name: Debug - Test browser launch
+        run: |
+          node -e "
+          try {
+            console.log('Testing puppeteer require...');
+            const puppeteer = require('puppeteer');
+            console.log('✅ Puppeteer loaded');
+
+            (async () => {
+              try {
+                console.log('Attempting browser launch...');
+                const browser = await puppeteer.launch({
+                  args: ['--no-sandbox'],
+                  headless: true
+                });
+                console.log('✅ Browser launched');
+                await browser.close();
+                console.log('✅ Browser closed');
+              } catch (e) {
+                console.error('❌ Browser launch failed:', e.message);
+                process.exit(1);
+              }
+            })();
+          } catch (e) {
+            console.error('❌ Puppeteer require failed:', e.message);
+            process.exit(1);
+          }
+          "
+
       - name: Take screenshot with Xvfb
         run: |
-          # Start virtual display
-          Xvfb :99 -screen 0 1920x1080x24 &
+          # Start virtual display with logging
+          echo "Starting Xvfb..."
+          Xvfb :99 -screen 0 1920x1080x24 -ac &
           export DISPLAY=:99
 
-          # Take screenshot
+          # Wait for Xvfb
+          sleep 3
+
+          # Test Xvfb is running
+          echo "Testing Xvfb..."
+          xdpyinfo -display :99 > /dev/null 2>&1 && echo "✅ Xvfb running" || echo "❌ Xvfb not running"
+
+          # Run screenshot script with verbose output
+          echo "Running screenshot script..."
           node scripts/take-screenshot.js
+
+          # Check exit code
+          if [ $? -eq 0 ]; then
+            echo "✅ Screenshot script completed successfully"
+          else
+            echo "❌ Screenshot script failed with exit code $?"
+            exit 1
+          fi
         env:
           CI: true
+          DEBUG: puppeteer:*
 
       - name: Verify screenshot
         run: |
