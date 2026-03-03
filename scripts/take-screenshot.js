@@ -1,234 +1,97 @@
 const puppeteer = require("puppeteer");
-const express = require("express");
-const serveStatic = require("serve-static");
-const path = require("path");
 const fs = require("fs");
+const path = require("path");
+const express = require("express");
 
-async function takeScreenshot() {
-  // Create screenshots directory if it doesn't exist
-  const screenshotsDir = path.join(__dirname, "../screenshots");
-  if (!fs.existsSync(screenshotsDir)) {
-    fs.mkdirSync(screenshotsDir, { recursive: true });
-    console.log("✅ Created screenshots directory");
-  }
-
-  // Start a local server to serve the built app
-  const app = express();
-  const buildPath = path.join(__dirname, "../build");
-
-  // Check if build directory exists
-  if (!fs.existsSync(buildPath)) {
-    console.log("🏗️ Build directory not found. Running build...");
-
-    // Automatically run build
-    const { execSync } = require("child_process");
-    execSync("npm run build", { stdio: "inherit" });
-    console.log("✅ Build completed");
-  }
-
-  app.use(serveStatic(buildPath));
-
-  const server = app.listen(3000);
-  console.log("🌐 Local server started on http://localhost:3000");
+(async () => {
+  let browser = null;
+  let server = null;
 
   try {
-    // Launch Puppeteer
-    console.log("🚀 Launching Puppeteer...");
-    const browser = await puppeteer.launch({
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-      headless: "new", // Use new headless mode
+    console.log("🚀 Memulai proses screenshot...");
+
+    // Cek folder build
+    const buildPath = path.join(process.cwd(), "build");
+    if (!fs.existsSync(buildPath)) {
+      throw new Error(
+        `Folder build tidak ditemukan di ${buildPath}. Jalankan 'npm run build' dulu.`,
+      );
+    }
+    console.log("✅ Folder build ditemukan");
+
+    // Jalankan server lokal untuk serve file build
+    console.log("🌐 Menjalankan server lokal...");
+    const app = express();
+    app.use(express.static("build"));
+
+    server = app.listen(3000, () => {
+      console.log("✅ Server berjalan di http://localhost:3000");
     });
+
+    // Tunggu server siap
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // Launch browser dengan konfigurasi untuk GitHub Actions
+    console.log("🌍 Meluncurkan browser...");
+    browser = await puppeteer.launch({
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-accelerated-2d-canvas",
+        "--disable-gpu",
+        "--window-size=1920,1080",
+      ],
+      headless: "new",
+    });
+
     const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
 
-    // Set viewport to a typical laptop size
-    await page.setViewport({ width: 1280, height: 800 });
-    console.log("📱 Viewport set to 1280x800");
-
-    // Navigate to the local server
-    console.log("🌍 Navigating to http://localhost:3000...");
+    // Navigasi ke localhost
+    console.log("📸 Mengakses halaman...");
     await page.goto("http://localhost:3000", {
       waitUntil: "networkidle0",
       timeout: 30000,
     });
-    console.log("✅ Page loaded");
 
-    // Wait for any animations/rendering (using setTimeout instead of waitForTimeout)
-    console.log("⏳ Waiting for page to stabilize...");
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    // Tunggu konten render
+    console.log("⏳ Menunggu halaman stabil...");
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
-    // Take a screenshot
-    const screenshotPath = path.join(screenshotsDir, "homepage.png");
+    // Ambil screenshot
+    const screenshotPath = path.join(
+      process.cwd(),
+      "screenshots",
+      "homepage.png",
+    );
+    console.log(`💾 Menyimpan screenshot ke ${screenshotPath}`);
+
     await page.screenshot({
       path: screenshotPath,
-      fullPage: false,
+      fullPage: true,
+      type: "png",
     });
 
-    console.log(`✅ Screenshot saved to ${screenshotPath}`);
-
-    // For extra challenge: Create laptop mockup
-    await createLaptopMockup(browser, screenshotPath, screenshotsDir);
-
-    await browser.close();
-    console.log("✅ Screenshot process completed successfully!");
+    // Verifikasi
+    if (fs.existsSync(screenshotPath)) {
+      const stats = fs.statSync(screenshotPath);
+      console.log(`✅ Screenshot berhasil! Ukuran: ${stats.size} bytes`);
+    } else {
+      throw new Error("File screenshot tidak ditemukan");
+    }
   } catch (error) {
-    console.error("❌ Error taking screenshot:", error);
-    process.exit(1);
+    console.error("❌ Error:", error.message);
+    process.exit(100);
   } finally {
-    server.close();
-    console.log("🛑 Local server stopped");
+    // Cleanup
+    if (browser) {
+      await browser.close();
+      console.log("🔄 Browser ditutup");
+    }
+    if (server) {
+      server.close();
+      console.log("🔄 Server ditutup");
+    }
   }
-}
-
-// Extra challenge: Create laptop mockup
-async function createLaptopMockup(browser, screenshotPath, screenshotsDir) {
-  try {
-    console.log("💻 Creating laptop mockup...");
-
-    // Read the screenshot as base64
-    const screenshotBuffer = fs.readFileSync(screenshotPath);
-    const base64Image = screenshotBuffer.toString("base64");
-
-    // Create a simple HTML frame with embedded image
-    const mockupHtml = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <style>
-          * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-          }
-          body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            padding: 40px;
-          }
-          .laptop {
-            background: #1a1a1a;
-            border-radius: 30px 30px 20px 20px;
-            padding: 20px 20px 30px 20px;
-            box-shadow: 0 50px 80px -20px rgba(0,0,0,0.6);
-            position: relative;
-            transform: perspective(1000px) rotateX(2deg);
-            transition: transform 0.3s ease;
-          }
-          .laptop:hover {
-            transform: perspective(1000px) rotateX(0deg);
-          }
-          .screen {
-            border: 3px solid #333;
-            border-radius: 15px;
-            overflow: hidden;
-            width: 1200px;
-            height: 700px;
-            background: #000;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
-          }
-          .screen img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            display: block;
-          }
-          .base {
-            background: linear-gradient(to bottom, #222, #111);
-            height: 25px;
-            width: 450px;
-            margin: 15px auto 0;
-            border-radius: 0 0 20px 20px;
-            position: relative;
-            box-shadow: 0 10px 15px -5px rgba(0,0,0,0.5);
-          }
-          .base:after {
-            content: '';
-            position: absolute;
-            bottom: -8px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 200px;
-            height: 8px;
-            background: #444;
-            border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-          }
-          .brand {
-            color: #666;
-            text-align: center;
-            margin-top: 10px;
-            font-size: 12px;
-            letter-spacing: 3px;
-            text-transform: uppercase;
-          }
-          .glow {
-            position: absolute;
-            top: -5px;
-            left: 10%;
-            right: 10%;
-            height: 10px;
-            background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%);
-            border-radius: 50%;
-            filter: blur(5px);
-          }
-        </style>
-      </head>
-      <body>
-        <div class="laptop">
-          <div class="glow"></div>
-          <div class="screen">
-            <img src="data:image/png;base64,${base64Image}" alt="Website Screenshot">
-          </div>
-          <div class="base"></div>
-          <div class="brand">MACBOOK PRO</div>
-        </div>
-      </body>
-      </html>
-    `;
-
-    // Create a new page for the mockup
-    const mockupPage = await browser.newPage();
-    await mockupPage.setViewport({ width: 1400, height: 900 });
-
-    // Set the HTML content directly
-    await mockupPage.setContent(mockupHtml, {
-      waitUntil: "networkidle0",
-      timeout: 30000,
-    });
-
-    // Wait for image to load
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    // Take screenshot of the mockup
-    const mockupScreenshotPath = path.join(
-      screenshotsDir,
-      "homepage-mockup.png",
-    );
-    await mockupPage.screenshot({
-      path: mockupScreenshotPath,
-      fullPage: false,
-      quality: 100,
-    });
-
-    console.log(`✅ Laptop mockup screenshot saved to ${mockupScreenshotPath}`);
-  } catch (error) {
-    console.error("⚠️ Warning: Error creating laptop mockup:", error.message);
-    console.log("Continuing without mockup...");
-    // Don't exit - mockup is optional
-  }
-}
-
-// Run if called directly
-if (require.main === module) {
-  console.log("📸 Starting screenshot process...");
-  console.log("=".repeat(50));
-  takeScreenshot().catch((error) => {
-    console.error("❌ Fatal error:", error);
-    process.exit(1);
-  });
-}
-
-module.exports = takeScreenshot;
+})();
