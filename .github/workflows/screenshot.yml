@@ -2,41 +2,50 @@ name: Update Screenshot
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
+
+# Give the GITHUB_TOKEN write permissions
+permissions:
+  contents: write
 
 jobs:
   screenshot:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-      with:
-        token: ${{ secrets.PAT_TOKEN }}  # Use PAT instead of GITHUB_TOKEN
+      - uses: actions/checkout@v3
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-        cache: 'npm'
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18.x
+          cache: "npm"
 
-    - name: Install dependencies
-      run: npm ci
+      - name: Install dependencies
+        run: npm ci
 
-    - name: Build app
-      run: npm run build
+      - name: Build the app
+        run: npm run build
 
-    - name: Create screenshots directory
-      run: mkdir -p screenshots
+      - name: Install Puppeteer dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgbm-dev wget gnup2
+          # Puppeteer dependencies for Ubuntu
+          sudo apt-get install -y gconf-service libasound2 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 libgcc1 libgconf-2-4 libgdk-pixbuf2.0-0 libglib2.0-0 libgtk-3-0 libnspr4 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 libxtst6 ca-certificates fonts-liberation libappindicator1 libnss3 lsb-release xdg-utils wget
 
-    - name: Take screenshot
-      run: npm run screenshot
+      - name: Create screenshots directory
+        run: mkdir -p screenshots
 
-    - name: Commit and push screenshots
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add screenshots/
-        git diff --quiet && git diff --staged --quiet || git commit -m "Update homepage screenshot [skip ci]"
-        git push https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git HEAD:${{ github.ref }}
+      - name: Take screenshot
+        run: node scripts/take-screenshot.js
+        env:
+          CI: true
+
+      - name: Commit and push if changed
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add screenshots/
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update homepage screenshot [skip ci]" && git push)
